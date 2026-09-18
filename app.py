@@ -35,6 +35,23 @@ FLOW_COLORS = {"fluido": "#38c0ff", "congestionado": "#ff8c00", "bloqueado": "#d
 FLOW_LABELS = {"fluido": "Flujo tranquilo", "congestionado": "Congestionado", "bloqueado": "Trabado / bloqueado"}
 ACCIDENT_CATEGORIES = {2}
 ROADWORKS_CATEGORIES = {8, 9, 10}
+CATEGORY_LABELS = {
+    1: "Desconocido",
+    2: "Accidente",
+    3: "Niebla",
+    4: "Condiciones peligrosas",
+    5: "Lluvia",
+    6: "Hielo",
+    7: "Embudo / atasco",
+    8: "Carril cerrado",
+    9: "Carretera cerrada",
+    10: "Obras en la vía",
+    11: "Viento",
+    12: "Inundación",
+    13: "Desvío",
+    14: "Conglomeración",
+    15: "Vehículo averiado",
+}
 
 
 def leer_secretos(key: str) -> str:
@@ -45,27 +62,40 @@ def leer_secretos(key: str) -> str:
 
 
 def muestrear_corredor(puntos, cantidad):
-    resultado = []
+    if len(puntos) < 2:
+        return list(puntos)
+    largos = []
+    total = 0.0
     for i in range(len(puntos) - 1):
-        a, b = puntos[i], puntos[i + 1]
-        tramo = cantidad - 1 if i == len(puntos) - 2 else max(1, cantidad // (len(puntos) - 1))
-        for j in range(tramo):
-            t = j / tramo
-            resultado.append((a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t))
-    if puntos:
-        resultado.append(puntos[-1])
+        d = ((puntos[i + 1][0] - puntos[i][0]) ** 2 + (puntos[i + 1][1] - puntos[i][1]) ** 2) ** 0.5
+        largos.append(d)
+        total += d
+    resultado = []
+    for k in range(cantidad):
+        objetivo = (total * k / (cantidad - 1)) if cantidad > 1 else total / 2
+        acum = 0.0
+        for i in range(len(puntos) - 1):
+            if acum + largos[i] >= objetivo or i == len(puntos) - 2:
+                t = ((objetivo - acum) / largos[i]) if largos[i] else 0.0
+                t = max(0.0, min(1.0, t))
+                resultado.append((
+                    puntos[i][0] + (puntos[i + 1][0] - puntos[i][0]) * t,
+                    puntos[i][1] + (puntos[i + 1][1] - puntos[i][1]) * t,
+                ))
+                break
+            acum += largos[i]
     return resultado
 
 
 def puntos_ciudad():
     pts = []
     for nombre, corredor in CORRIDORS.items():
-        pts.extend(muestrear_corredor(corredor, 4))
+        pts.extend(muestrear_corredor(corredor, 2))
     return pts
 
 
 def consultar_flujo(lat: float, lng: float, key: str):
-    url = "https://api.tomtom.com/traffic/services/4/flowSegmentData/relative/0"
+    url = "https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/12/json"
     params = {"point": f"{lat},{lng}", "unit": "kmph", "openLr": "false", "key": key}
     respuesta = requests.get(url, params=params, timeout=10)
     respuesta.raise_for_status()
@@ -99,7 +129,7 @@ def consultar_incidentes(key: str):
     params = {
         "bbox": bbox,
         "projection": "EPSG4326",
-        "language": "es",
+        "language": "en-GB",
         "timeValidityFilter": "present",
         "key": key,
     }
@@ -120,15 +150,22 @@ def consultar_incidentes(key: str):
             tipo = "obras"
         else:
             continue
-        eventos = props.get("events") or []
-        descripcion = eventos[0].get("description", "") if eventos else ""
+        geometria = []
+        tipo_geo = geo.get("type", "")
+        if tipo_geo == "Point":
+            lng, lat = coords[0], coords[1]
+            geometria = [(lat, lng)]
+        else:
+            geometria = [(p[1], p[0]) for p in coords]
+            lat, lng = geometria[len(geometria) // 2]
         procesados.append({
-            "lat": coords[1],
-            "lng": coords[0],
+            "lat": lat,
+            "lng": lng,
             "tipo": tipo,
             "categoria": categoria,
-            "descripcion": descripcion or "Sin descripción",
+            "descripcion": CATEGORY_LABELS.get(categoria, f"Categoría {categoria}"),
             "demora_min": props.get("delay", 0),
+            "geometria": geometria,
         })
     return procesados
 
@@ -172,12 +209,17 @@ def construir_mapa(flujo, incidentes):
         folium.PolyLine(geo, color=FLOW_COLORS[nivel], weight=espesor, opacity=0.85, popup=popup).add_to(mapa)
 
     for inc in incidentes:
+        geo_inc = inc.get("geometria") or []
         if inc["tipo"] == "accidente":
             color, icono = "red", "exclamation-triangle"
         else:
             color, icono = "darkorange", "wrench"
-        texto = (f"<b>{'Accidente' if inc['tipo'] == 'accidente' else 'Obras / trabajadores'}</b><br>"
-                 f"{inc['descripcion']}<br>Demora estimada: {inc['demora_min']} min")
+        texto = (f"<b>{inc['descripcion']}</b><br>"
+                 f"Categoría: {CATEGORY_LABELS.get(inc['categoria'], 'N/D')}<br>"
+                 f"Demora estimada: {inc['demora_min']} min")
+        if len(geo_inc) >= 2:
+            folium.PolyLine(geo_inc, color=color, weight=6, opacity=0.8, dash_array="10 6",
+                            popup=folium.Popup(texto, max_width=280)).add_to(mapa)
         folium.Marker(
             [inc["lat"], inc["lng"]],
             icon=folium.Icon(color=color, icon=icono, prefix="fa"),

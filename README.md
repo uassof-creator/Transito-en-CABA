@@ -34,6 +34,8 @@ tomtom_key = "TU_CLAVE_PRIMARY"
 
 > También puede cargarse mediante la variable de entorno `TOMTOM_KEY` en el sistema.
 >
+> 🔒 **Importante (seguridad)**: el archivo `.streamlit/secrets.toml` **no debe subirse a GitHub ni compartirse**. Este proyecto incluye un `.gitignore` que excluye la carpeta `.streamlit/`. Si subís el repositorio a GitHub, borrá el `secrets.toml` del historial y **rotá la clave** en el dashboard de TomTom (aparece expuesta). Si desplegás en Streamlit Cloud, configurá la clave en *Settings → Secrets* de la app, no en el código.
+>
 > ⚠️ Nota sobre cuota gratuita: el plan free de TomTom limita la cantidad de llamadas mensuales (~2500). Un refresco continuo cada 30 segundos puede agotar la cuota rápidamente. Para uso extendido, aumentá el intervalo de refresco o evaluá un plan superior.
 
 ## Instalación
