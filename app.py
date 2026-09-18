@@ -1,7 +1,5 @@
 import os
-import json
 import time
-import random
 import requests
 import streamlit as st
 import folium
@@ -10,7 +8,6 @@ from streamlit_autorefresh import st_autorefresh
 
 CABA_CENTER = [-34.6037, -58.3816]
 CABA_BBOX = {"west": -58.5400, "south": -34.7100, "east": -58.3300, "north": -34.5300}
-CONTROLS_FILE = os.path.join(os.path.dirname(__file__), "controles.json")
 
 CORRIDORS = {
     "Av. 9 de Julio": [(-34.5900, -58.3812), (-34.6030, -58.3812), (-34.6170, -58.3805), (-34.6279, -58.3800)],
@@ -47,28 +44,6 @@ def leer_secretos(key: str) -> str:
         return ""
 
 
-def cargar_controles():
-    if not os.path.exists(CONTROLS_FILE):
-        return []
-    with open(CONTROLS_FILE, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except Exception:
-            return []
-
-
-def guardar_controles(controles):
-    with open(CONTROLS_FILE, "w", encoding="utf-8") as f:
-        json.dump(controles, f, ensure_ascii=False, indent=2)
-
-
-def en_caba(lat: float, lng: float) -> bool:
-    return (
-        CABA_BBOX["south"] <= lat <= CABA_BBOX["north"]
-        and CABA_BBOX["west"] <= lng <= CABA_BBOX["east"]
-    )
-
-
 def muestrear_corredor(puntos, cantidad):
     resultado = []
     for i in range(len(puntos) - 1):
@@ -90,7 +65,7 @@ def puntos_ciudad():
 
 
 def consultar_flujo(lat: float, lng: float, key: str):
-    url = f"https://api.tomtom.com/traffic/services/4/flowSegmentData/relative/0"
+    url = "https://api.tomtom.com/traffic/services/4/flowSegmentData/relative/0"
     params = {"point": f"{lat},{lng}", "unit": "kmph", "openLr": "false", "key": key}
     respuesta = requests.get(url, params=params, timeout=10)
     respuesta.raise_for_status()
@@ -154,66 +129,37 @@ def consultar_incidentes(key: str):
             "categoria": categoria,
             "descripcion": descripcion or "Sin descripción",
             "demora_min": props.get("delay", 0),
-            "desde": props.get("from", ""),
-            "hasta": props.get("to", ""),
         })
     return procesados
 
 
-def flujo_demo(lat, lng):
-    rnd = random.random()
-    if rnd < 0.15:
-        nivel = "bloqueado"
-    elif rnd < 0.4:
-        nivel = "congestionado"
-    else:
-        nivel = "fluido"
-    return {
-        "geometria": [(lat, lng), (lat + 0.0007, lng + 0.0009)],
-        "velocidad_actual": 20 if nivel == "bloqueado" else 40 if nivel == "congestionado" else 62,
-        "velocidad_libre": 60,
-        "cierre": nivel == "bloqueado",
-        "frc": "FRC4",
-    }
-
-
-def incidentes_demo():
-    base = [
-        ("accidente", -34.5912, -58.3891, "Choque múltiple sobre Av. 9 de Julio", 35),
-        ("obras", -34.6138, -58.4300, "Trabajos de pavimentación en Av. Corrientes", 20),
-        ("accidente", -34.6200, -58.3750, "Colisión entre auto y moto", 15),
-        ("obras", -34.5908, -58.4110, "Reparación de semáforos y señalización", 10),
-    ]
-    resultado = []
-    for tipo, lat, lng, desc, demora in base:
-        if random.random() < 0.75:
-            resultado.append({"lat": lat, "lng": lng, "tipo": tipo, "descripcion": desc, "demora_min": demora, "desde": "", "hasta": ""})
-    return resultado
-
-
 @st.cache_data(ttl=30, show_spinner="Consultando tránsito en CABA...")
 def obtener_datos(key: str):
-    if key:
-        flujo = []
-        for lat, lng in puntos_ciudad():
-            try:
-                flujo.append(consultar_flujo(lat, lng, key))
-            except Exception:
-                continue
+    flujo = []
+    errores = 0
+    for lat, lng in puntos_ciudad():
         try:
-            incidentes = consultar_incidentes(key)
+            flujo.append(consultar_flujo(lat, lng, key))
         except Exception:
-            incidentes = []
-        modo = "real"
-    else:
-        flujo = [flujo_demo(lat, lng) for lat, lng in puntos_ciudad()]
-        incidentes = incidentes_demo()
-        modo = "demo"
-    return flujo, incidentes, modo
+            errores += 1
+            continue
+    try:
+        incidentes = consultar_incidentes(key)
+    except Exception:
+        incidentes = []
+    return flujo, incidentes, errores
 
 
-def construir_mapa(flujo, incidentes, controles):
-    mapa = folium.Map(location=CABA_CENTER, zoom_start=12, tiles="cartodbpositron", control_scale=True)
+def construir_mapa(flujo, incidentes):
+    mapa = folium.Map(
+        location=CABA_CENTER,
+        zoom_start=12,
+        min_zoom=10,
+        max_zoom=18,
+        tiles="cartodbpositron",
+        control_scale=True,
+        scroll_wheel_zoom=True,
+    )
     folium.Element('<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>').add_to(mapa.get_root().html)
 
     for seg in flujo:
@@ -238,15 +184,6 @@ def construir_mapa(flujo, incidentes, controles):
             popup=folium.Popup(texto, max_width=280),
         ).add_to(mapa)
 
-    for c in controles:
-        texto = f"<b>{c.get('tipo', 'Control policial')}</b><br>{c.get('descripcion', '')}"
-        folium.Marker(
-            [c["lat"], c["lng"]],
-            icon=folium.Icon(color="blue", icon="shield-halved", prefix="fa"),
-            popup=folium.Popup(texto, max_width=280),
-            tooltip="Control reportado por usuarios",
-        ).add_to(mapa)
-
     leyenda = """
     <div style="position:fixed; bottom:30px; left:60px; z-index:9999; background:white;
                 padding:8px 12px; border-radius:6px; box-shadow:0 1px 4px rgba(0,0,0,.3);
@@ -255,8 +192,7 @@ def construir_mapa(flujo, incidentes, controles):
       <span style="color:#38c0ff">—</span> Fluido (tranquilo)<br>
       <span style="color:#ff8c00">—</span> Congestionado<br>
       <span style="color:#d32f2f">—</span> Trabado / bloqueado<br>
-      <span style="color:red">⚠</span> Accidente &nbsp; <span style="color:darkorange">🔧</span> Obras<br>
-      <span style="color:blue">🛡</span> Control reportado
+      <span style="color:red">⚠</span> Accidente &nbsp; <span style="color:darkorange">🔧</span> Obras
     </div>
     """
     mapa.get_root().html.add_child(folium.Element(leyenda))
@@ -268,77 +204,52 @@ def main():
     st_autorefresh(interval=30000, key="refresco_transito")
 
     key = leer_secretos("TOMTOM_KEY") or leer_secretos("tomtom_key") or os.environ.get("TOMTOM_KEY", "").strip()
-    controles = cargar_controles()
 
     st.title("🚦 Estado del Tránsito en Vivo — Ciudad de Buenos Aires")
-    st.caption("Datos públicos de tráfico en tiempo real (TomTom Traffic). Se actualiza automáticamente cada 30 segundos.")
+    st.caption("Datos de tráfico en tiempo real de la API pública gratuita de TomTom Traffic. "
+               "Actualización automática cada 30 segundos. Zoom con la rueda del mouse o con los botones + / − del mapa.")
+
+    if not key:
+        st.error("No hay API key de TomTom configurada. "
+                 "La app usa los datos en tiempo real de la API pública TomTom Traffic y **no genera datos de demostración**, "
+                 "por lo que sin clave no puede mostrar el mapa.")
+        st.markdown(
+            "### Cómo activar los datos en tiempo real\n"
+            "1. Registrate gratis en [developer.tomtom.com](https://developer.tomtom.com) y copiá tu **Primary Key**.\n"
+            "2. Creá el archivo `.streamlit/secrets.toml` dentro de la carpeta `transito-ba` con el contenido:\n"
+            "```toml\n"
+            "tomtom_key = \"TU_CLAVE_PRIMARY\"\n"
+            "```\n"
+            "3. Reiniciá la app con `streamlit run app.py`."
+        )
+        st.stop()
 
     with st.sidebar:
         st.header("Configuración")
-        if key:
-            st.success("API key de TomTom configurada. Modo: **tiempo real**.")
-        else:
-            st.warning("Sin API key. Modo **DEMO** con datos simulados. "
-                       "Obtené tu clave gratis en https://developer.tomtom.com y cargala en "
-                       "`.streamlit/secrets.toml` como `tomtom_key` o en la variable de entorno `TOMTOM_KEY`.")
+        st.success("API key de TomTom configurada. Mostrando datos de tránsito en tiempo real.")
         if st.button("🔄 Forzar actualización ahora"):
             obtener_datos.clear()
             st.rerun()
         st.divider()
-        st.subheader("Controles reportados")
-        if controles:
-            st.write(f"Total: {len(controles)}")
-            for c in controles:
-                col_a, col_b = st.columns([4, 1])
-                col_a.write(f"**{c.get('tipo','')}** ({c.get('lat',0):.4f}, {c.get('lng',0):.4f})")
-                if col_b.button("🗑", key=f"del_{c['id']}"):
-                    controles = [x for x in controles if x["id"] != c["id"]]
-                    guardar_controles(controles)
-                    st.rerun()
-        else:
-            st.write("Todavía no hay controles reportados.")
+        st.subheader("Leyenda")
+        st.markdown(
+            "- <span style='color:#38c0ff'>━━</span> Fluido (tranquilo)\n"
+            "- <span style='color:#ff8c00'>━━</span> Congestionado\n"
+            "- <span style='color:#d32f2f'>━━</span> Trabado / bloqueado\n"
+            "- <span style='color:red'>⚠</span> Accidente\n"
+            "- <span style='color:darkorange'>🔧</span> Obras / trabajadores",
+            unsafe_allow_html=True,
+        )
 
-    flujo, incidentes, modo = obtener_datos(key)
-    mapa = construir_mapa(flujo, incidentes, controles)
+    flujo, incidentes, errores = obtener_datos(key)
+    mapa = construir_mapa(flujo, incidentes)
 
-    col_map, col_panel = st.columns([3, 1])
-    with col_map:
-        resultado_mapa = st_folium(mapa, width="100%", height=620)
-        ultima = time.strftime("%H:%M:%S")
-        st.caption(f"Última actualización: {ultima} — Modo: {'tiempo real' if modo == 'real' else 'demo'} — "
-                   f"{len(flujo)} tramos viales · {len(incidentes)} incidentes · {len(controles)} controles reportados")
+    st_folium(mapa, width="100%", height=620)
 
-    click = resultado_mapa.get("click_data") if resultado_mapa else None
-    lat_click = click.get("lat") if click else None
-    lng_click = click.get("lng") if click else None
-
-    with col_panel:
-        st.subheader("📍 Reportar control policial")
-        st.write("Hacé clic sobre el mapa para marcar la ubicación, o ingresala manualmente.")
-        if lat_click is not None:
-            st.info(f"Marcaste el punto ({lat_click:.5f}, {lng_click:.5f})")
-        with st.form("reporte_control"):
-            lat_in = st.number_input("Latitud", value=lat_click if lat_click is not None else CABA_CENTER[0], format="%.6f")
-            lng_in = st.number_input("Longitud", value=lng_click if lng_click is not None else CABA_CENTER[1], format="%.6f")
-            tipo = st.selectbox("Tipo de control", ["Control policial", "Alcoholemia", "Radar fijo", "Radar móvil", "Otro"])
-            desc = st.text_input("Descripción (opcional)")
-            enviado = st.form_submit_button("Guardar reporte")
-            if enviado:
-                if not en_caba(lat_in, lng_in):
-                    st.error("Las coordenadas están fuera de la Ciudad de Buenos Aires.")
-                else:
-                    controles.append({
-                        "id": int(time.time() * 1000),
-                        "lat": lat_in,
-                        "lng": lng_in,
-                        "tipo": tipo,
-                        "descripcion": desc.strip() or "Sin descripción",
-                        "fecha": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    })
-                    guardar_controles(controles)
-                    obtener_datos.clear()
-                    st.success("Reporte guardado. Se muestra en el mapa al actualizar.")
-                    st.rerun()
+    ultima = time.strftime("%H:%M:%S")
+    st.caption(f"Última actualización: {ultima} — {len(flujo)} tramos viales monitoreados · "
+               f"{len(incidentes)} incidentes activos"
+               + (f" · ⚠️ {errores} tramos sin datos en esta consulta" if errores else ""))
 
 
 if __name__ == "__main__":

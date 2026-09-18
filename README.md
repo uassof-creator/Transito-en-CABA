@@ -1,25 +1,26 @@
 # Tránsito en Vivo — Ciudad de Buenos Aires
 
-Aplicación web interactiva (Python + Streamlit) que muestra el **estado del tránsito en tiempo real de la Ciudad de Buenos Aires**, junto con incidentes de tráfico y controles policiales reportados por los usuarios (estilo Waze).
+Aplicación web interactiva (Python + Streamlit) que muestra el **estado del tránsito en tiempo real de la Ciudad de Buenos Aires**, coloreando los tramos viales afectados según su nivel de congestión e indicando los incidentes activos.
 
 ## Funcionalidades
 
-- **Mapa interactivo** de la Ciudad de Buenos Aires con el estado del tránsito por tramo vial, pintado según la congestión:
-  - 🔵 **Celeste** → vías tranquilas (flujo libre)
-  - 🟠 **Naranja** → vías congestionadas
-  - 🔴 **Rojo** → vías trabadas o bloqueadas
-- **Iconos de incidentes** en las zonas afectadas:
+- **Mapa interactivo** de la Ciudad de Buenos Aires con el estado del tránsito pintado **tramo por tramo**:
+  - 🔵 **Celeste** → tramos con flujo tranquilo
+  - 🟠 **Naranja** → tramos congestionados
+  - 🔴 **Rojo** → tramos trabados o bloqueados
+- **Zoom total**: acercarse y alejarse con la **rueda del mouse** o con los botones **+ / −** que aparecen en el mapa.
+- **Iconos de incidentes** sobre las zonas afectadas:
   - ⚠️ **Accidentes** (rojo, ícono de exclamación)
   - 🔧 **Obras / trabajadores en la vía** (naranja, ícono de llave)
-- **Controles policiales reportados por usuarios** (estilo Waze): se marcan haciendo clic sobre el mapa o cargando coordenadas manualmente. Se guardan de forma persistente en `controles.json`.
-- **Actualización automática cada 30 segundos** con botón para forzar la actualización manualmente.
-- **Leyenda** integrada en el mapa para identificar cada color e ícono.
+- **Actualización automática cada 30 segundos**, con botón para forzar la actualización manualmente.
+- **Leyenda** en el mapa y en el panel lateral para identificar cada color e ícono.
+- **Siempre datos reales**: la app se conecta a la API pública gratuita de TomTom Traffic. Si la API key no está configurada, muestra un aviso instructivo (no genera datos simulados).
 
 ## Requisitos previos
 
 - Python 3.9 o superior
 - pip
-- (Opcional) Una **API key gratuita de TomTom** para ver datos en tiempo real real. Sin ella, la app funciona en **modo demo** con datos simulados.
+- Una **API key gratuita de TomTom** (plan gratis de la API pública). Sin ella la app no muestra datos reales: no existe ninguna API de tránsito de CABA completamente abierta (la oficial de la Ciudad está suspendida desde hace tiempo).
 
 ## Cómo obtener una API key gratuita (TomTom)
 
@@ -33,7 +34,7 @@ tomtom_key = "TU_CLAVE_PRIMARY"
 
 > También puede cargarse mediante la variable de entorno `TOMTOM_KEY` en el sistema.
 >
-> ⚠️ Nota sobre cuota gratuita: el plan free de TomTom limita la cantidad de llamadas mensuales (~2500). Un refresco continuo cada 30 segundos puede agotar la cuota rápidamente. Para uso extendido, aumentá el intervalo de refresco o evaluá un plan superior. Sin clave, la app corre en modo demo sin consumir llamadas.
+> ⚠️ Nota sobre cuota gratuita: el plan free de TomTom limita la cantidad de llamadas mensuales (~2500). Un refresco continuo cada 30 segundos puede agotar la cuota rápidamente. Para uso extendido, aumentá el intervalo de refresco o evaluá un plan superior.
 
 ## Instalación
 
@@ -67,18 +68,17 @@ Se abrirá automáticamente el navegador en `http://localhost:8501`.
 
 ## Cómo usar la aplicación
 
-1. **Ver el estado del tránsito**: el mapa se pinta con los colores de congestión de los principales corredores viales de CABA (Av. 9 de Julio, Rivadavia, Corrientes, Santa Fe, Cabildo, General Paz, autopistas AU1, AU6, presidentes Illia, etc.). Hacé clic sobre cualquier línea para ver la velocidad actual vs. la velocidad libre.
-2. **Ver incidentes**: los íconos rojos (accidente) y naranjas (obras) muestran detalles como descripción y demora estimada.
-3. **Reportar un control policial**: hacé clic sobre el mapa en el punto del control, completá el tipo (control policial, alcoholemia, radar fijo/móvil, otro) y una descripción opcional, y pulsá *"Guardar reporte"*. El marcador azul 🛡 queda visible para todos los usuarios de la app.
-4. **Eliminar reportes**: desde el panel lateral podés borrar cualquier control reportado.
+1. **Ver el estado del tránsito**: cada tramo de los principales corredores viales de CABA (Av. 9 de Julio, Rivadavia, Corrientes, Santa Fe, Cabildo, General Paz, autopistas AU1, AU6, presidente Illia, etc.) se pinta con el color de su nivel de congestión. Hacé clic sobre una línea para ver la velocidad actual vs. la velocidad libre.
+2. **Navegar el mapa**: usá la rueda del mouse sobre el mapa o los botones **+ / −** de la esquina para hacer zoom. Podés arrastrar para moverte por la ciudad.
+3. **Ver incidentes**: los íconos rojos (accidente) y naranjas (obras) muestran descripción y demora estimada.
+4. **Actualizar**: la app se refresca sola cada 30 segundos; también podés pulsar *"Forzar actualización ahora"* en el panel lateral.
 
 ## Fuente de datos
 
 | Dato                  | Fuente                                     | Descripción                                             |
 |-----------------------|--------------------------------------------|---------------------------------------------------------|
-| Velocidad/Congestión  | TomTom Traffic Flow (Flow Segment Data)    | Velocidad actual vs. libre por segmento de vía          |
+| Velocidad/Congestión  | TomTom Traffic Flow (Flow Segment Data)    | Velocidad actual vs. libre por tramo de vía             |
 | Incidentes            | TomTom Traffic Incidents (Incident Details)| Accidentes y obras dentro del perímetro de CABA         |
-| Controles policiales  | Reportes de usuarios locales               | Guardados en `controles.json` (persistencia local)      |
 
 ## Arquitectura y decisiones técnicas
 
@@ -91,11 +91,11 @@ Se abrirá automáticamente el navegador en `http://localhost:8501`.
    - `2` (accidente) → ícono ⚠️ rojo
    - `8`, `9`, `10` (carril cerrado, ruta cerrada, obras) → ícono 🔧 naranja
 
-3. **Auto-refresco**: `streamlit-autorefresh` vuelve a ejecutar la app cada **30 segundos**. Las consultas a las APIs usan caché con TTL de 30 s (`@st.cache_data(ttl=30)`), evitando llamadas redundantes.
+3. **Zoom en el mapa**: el mapa se crea con `scroll_wheel_zoom=True`, lo que habilita el zoom con la rueda del mouse. Los controles **+ / −** de Leaflet vienen habilitados por defecto (zoom control estándar), con límites `min_zoom` y `max_zoom` para evitar alejarse demasiado.
 
-4. **Reportes de usuarios (estilo Waze)**: la interacción de clic del mapa la captura el componente `streamlit-folium` (`click_data`). Los reportes aceptados (coordenadas dentro de CABA) se guardan en `controles.json` y se dibujan como marcadores azules. La persistencia en JSON hace que los reportes sobrevivan a los reinicios.
+4. **Auto-refresco**: `streamlit-autorefresh` vuelve a ejecutar la app cada **30 segundos**. Las consultas a las APIs usan caché con TTL de 30 s (`@st.cache_data(ttl=30)`), evitando llamadas redundantes.
 
-5. **Modo demo**: si no hay API key configurada, la app genera datos de tránsito e incidentes simulados de forma aleatoria para poder visualizar y probar todas las funciones sin conectarse a internet ni consumir cuota.
+5. **Sin datos falsos**: no existe ningún modo de demostración ni datos simulados. El mapa se construye exclusivamente con las respuestas en tiempo real de TomTom. Si la clave no está configurada o la consulta falla, la app avisa al usuario en lugar de inventar información.
 
 ## Archivos del proyecto
 
@@ -103,7 +103,6 @@ Se abrirá automáticamente el navegador en `http://localhost:8501`.
 transito-ba/
 ├── app.py              # Código fuente principal
 ├── requirements.txt    # Dependencias de Python
-├── controles.json      # Persistencia de controles reportados por usuarios
 └── README.md           # Este archivo
 ```
 
@@ -120,8 +119,8 @@ transito-ba/
 ## Limitaciones
 
 - La cobertura de vías pintadas está limitada a los principales corredores viales configurados (no todas las calles de la ciudad).
-- En modo demo los datos no son reales; solo sirven para evaluar la interfaz.
 - La cuota gratuita de TomTom puede resultar insuficiente para un refresco continuo de 30 s durante mucho tiempo.
+- La API oficial de tránsito del Gobierno de la Ciudad (GCBA) está suspendida; por eso se usa TomTom como fuente pública.
 
 ## Licencia
 
